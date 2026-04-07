@@ -1,4 +1,4 @@
-name: RDP-Tailscale-Fijo
+name: RDP-Fixed-Eduardo-RDP
 
 on:
   workflow_dispatch:
@@ -6,55 +6,42 @@ on:
 jobs:
   secure-rdp:
     runs-on: windows-latest
-    timeout-minutes: 360
+    timeout-minutes: 360 # Límite de los runners gratuitos
 
     steps:
-      - name: Configurar RDP Seguro
+      - name: Configure Core RDP Settings
         run: |
-          # Habilitar RDP
+          # Habilitar RDP y relajar seguridad para compatibilidad directa
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          
-          # Activar NLA y capa de seguridad adecuada
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 1 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
 
-          # Abrir puerto 3389 en firewall
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
-
-          # Reiniciar servicio RDP
+          # Abrir el firewall
+          netsh advfirewall firewall add rule name="RDP-Static" dir=in action=allow protocol=TCP localport=3389
           Restart-Service -Name TermService -Force
 
-      - name: Crear usuario RDP fijo
+      - name: Create Eduardo Avila User
         run: |
-          # Obtener usuario y contraseña desde GitHub Secrets
-          $userName = "${{ secrets.RDP_USERNAME }}"
-          $password = "${{ secrets.RDP_PASSWORD }}"
+          $password = "..147258.."
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          
+          # Crear usuario "Eduardo Avila"
+          New-LocalUser -Name "Eduardo Avila" -Password $securePass -AccountNeverExpires
+          
+          # Asignar permisos de Administrador
+          Add-LocalGroupMember -Group "Administrators" -Member "Eduardo Avila"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Eduardo Avila"
 
-          # Crear usuario solo si no existe
-          if (-not (Get-LocalUser -Name $userName -ErrorAction SilentlyContinue)) {
-              New-LocalUser -Name $userName -Password $securePass -AccountNeverExpires
-          }
-
-          # Agregar a grupos necesarios
-          Add-LocalGroupMember -Group "Administrators" -Member $userName
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $userName
-
-          # Guardar para mostrar al final
-          echo "RDP_USER=$userName" >> $env:GITHUB_ENV
-          echo "RDP_PASS=$password" >> $env:GITHUB_ENV
-
-      - name: Instalar Tailscale
+      - name: Install Tailscale
         run: |
           Invoke-WebRequest https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi -OutFile tailscale.msi
           Start-Process msiexec.exe -ArgumentList "/i", "tailscale.msi", "/quiet", "/norestart" -Wait
 
-      - name: Conectar Tailscale
+      - name: Establish Tailscale Connection (eduardo-rdp)
         run: |
-          # Conectar usando authkey y hostname fijo
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=Eduardo-RDP
-
-          # Esperar a que asigne IP
+          # Usando el hostname fijo solicitado
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=eduardo-rdp
+          
           $tsIP = ""
           while (-not $tsIP) {
               $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
@@ -62,17 +49,19 @@ jobs:
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
 
-      - name: Mostrar datos de conexión
+      - name: Final Connection Details
         run: |
-          Write-Host "`n=== DATOS DE ACCESO RDP ==="
-          Write-Host "Usuario: $env:RDP_USER"
-          Write-Host "Password: $env:RDP_PASS"
-          Write-Host "Tailscale Hostname: Eduardo-RDP.tailnet"
-          Write-Host "==========================`n"
+          Write-Host "`n=========================================="
+          Write-Host "SERVIDOR LISTO"
+          Write-Host "Hostname: eduardo-rdp"
+          Write-Host "IP Tailscale: $env:TAILSCALE_IP"
+          Write-Host "Usuario: Eduardo Avila"
+          Write-Host "Password: ..147258.."
+          Write-Host "==========================================`n"
 
-      - name: Mantener RDP activo (6 horas)
+      - name: Maintain Connection
         run: |
-          for ($i=0; $i -lt 72; $i++) {
-              Write-Host "[$(Get-Date)] RDP activo"
+          while ($true) {
+              Write-Host "[$(Get-Date)] Conexión activa en eduardo-rdp..."
               Start-Sleep -Seconds 300
           }
