@@ -1,0 +1,78 @@
+name: RDP-Tailscale-Fijo
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secure-rdp:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Configurar RDP Seguro
+        run: |
+          # Habilitar RDP
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          
+          # Activar NLA y capa de seguridad adecuada
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 1 -Force
+
+          # Abrir puerto 3389 en firewall
+          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+
+          # Reiniciar servicio RDP
+          Restart-Service -Name TermService -Force
+
+      - name: Crear usuario RDP fijo
+        run: |
+          # Obtener usuario y contraseña desde GitHub Secrets
+          $userName = "${{ secrets.RDP_USERNAME }}"
+          $password = "${{ secrets.RDP_PASSWORD }}"
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+
+          # Crear usuario solo si no existe
+          if (-not (Get-LocalUser -Name $userName -ErrorAction SilentlyContinue)) {
+              New-LocalUser -Name $userName -Password $securePass -AccountNeverExpires
+          }
+
+          # Agregar a grupos necesarios
+          Add-LocalGroupMember -Group "Administrators" -Member $userName
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $userName
+
+          # Guardar para mostrar al final
+          echo "RDP_USER=$userName" >> $env:GITHUB_ENV
+          echo "RDP_PASS=$password" >> $env:GITHUB_ENV
+
+      - name: Instalar Tailscale
+        run: |
+          Invoke-WebRequest https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi -OutFile tailscale.msi
+          Start-Process msiexec.exe -ArgumentList "/i", "tailscale.msi", "/quiet", "/norestart" -Wait
+
+      - name: Conectar Tailscale
+        run: |
+          # Conectar usando authkey y hostname fijo
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=Eduardo-RDP
+
+          # Esperar a que asigne IP
+          $tsIP = ""
+          while (-not $tsIP) {
+              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+              Start-Sleep -Seconds 2
+          }
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+
+      - name: Mostrar datos de conexión
+        run: |
+          Write-Host "`n=== DATOS DE ACCESO RDP ==="
+          Write-Host "Usuario: $env:RDP_USER"
+          Write-Host "Password: $env:RDP_PASS"
+          Write-Host "Tailscale Hostname: Eduardo-RDP.tailnet"
+          Write-Host "==========================`n"
+
+      - name: Mantener RDP activo (6 horas)
+        run: |
+          for ($i=0; $i -lt 72; $i++) {
+              Write-Host "[$(Get-Date)] RDP activo"
+              Start-Sleep -Seconds 300
+          }
